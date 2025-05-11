@@ -3,16 +3,16 @@ import time
 import threading
 import requests
 
-# Lê o token do arquivo
 with open("token.txt") as arquivo:
     token = arquivo.read().strip()
-
 bot = telebot.TeleBot(token)
 
 chat_ids = {}
 
+
 def verificar(mensagem):
     return True
+
 
 @bot.message_handler(func=verificar)
 def responder(mensagem):
@@ -20,59 +20,42 @@ def responder(mensagem):
     if chat_id not in chat_ids:
         chat_ids[chat_id] = None  # Inicializa com None, indicando que o produto ainda não foi pedido
 
-    # Verificar se o chat foi finalizado
-    if chat_ids[chat_id] == 'finalizado':
-        return  # Não faz nada se o chat foi finalizado
-
-    # Mensagem inicial
-    texto_inicial = f"""
-    Oi, {mensagem.from_user.first_name}! Aqui é o Rab, te ajudo a encontrar a melhor oferta.
-    /opcao1 Buscar ofertas
-    """
-
-    # Verificar se a mensagem é uma opção
     if mensagem.text.startswith('/opcao'):
         if mensagem.text == '/opcao1':
-            # Lógica para buscar ofertas
-            bot.reply_to(mensagem, "Qual produto você deseja procurar?")
-            chat_ids[chat_id] = 'buscando_produto'  # Marcar que o usuário está buscando um produto
+            bot.reply_to(mensagem, "Você escolheu a opção 1: Buscar ofertas. Qual produto você deseja procurar?")
+            chat_ids[chat_id] = 'buscando_produto'
         elif mensagem.text == '/opcao2':
-            # Lógica para reclamações
             bot.reply_to(mensagem, "Você escolheu a opção 2: Reclamações.")
         elif mensagem.text == '/opcao3':
-            # Lógica para enviar um elogio
             bot.reply_to(mensagem, "Você escolheu a opção 3: Enviar um elogio.")
         else:
             bot.reply_to(mensagem, "Opção inválida. Por favor, escolha uma das opções disponíveis.")
     elif chat_ids[chat_id] == 'buscando_produto':
-        # Caso o usuário tenha solicitado buscar ofertas, ele agora enviou um produto
         produto = mensagem.text.strip()
         bot.reply_to(mensagem, f"Buscando ofertas para: {produto}")
-        chat_ids[chat_id] = produto  # Salva o nome do produto para buscar as ofertas
+        chat_ids[chat_id] = produto
         buscar_ofertas(produto, chat_id)
-    elif chat_ids[chat_id] is None:  # Envia a mensagem inicial apenas se ainda não foi enviado nada
-        bot.reply_to(mensagem, texto_inicial)
+    else:
+        enviar_botoes(chat_id)
+
 
 def buscar_ofertas(produto, chat_id):
     try:
-        # Fazendo a requisição para o Mercado Livre, buscando pelo produto escolhido
         response = requests.get(f'https://api.mercadolibre.com/sites/MLB/search?q={produto}')
         data = response.json()
         ofertas = data.get('results', [])
 
         if ofertas:
-            # Inicializa uma variável para armazenar a oferta com o menor preço
             menor_preco = float('inf')
             oferta_mais_barata = None
             outras_ofertas = []
 
-            # Comparando os preços das ofertas
-            for oferta in ofertas[:5]:  # Limitando a 5 ofertas
+            for oferta in ofertas[:5]:
                 titulo = oferta.get('title')
                 preco = oferta.get('price')
                 link = oferta.get('permalink')
 
-                if preco < menor_preco:  # Se encontramos um preço menor
+                if preco < menor_preco:
                     menor_preco = preco
                     oferta_mais_barata = {
                         'titulo': titulo,
@@ -85,23 +68,19 @@ def buscar_ofertas(produto, chat_id):
                     'link': link
                 })
 
-            # Enviar a oferta mais barata
             if oferta_mais_barata:
                 mensagem_oferta = (f"Encontrei a oferta mais barata para '{produto}':\n"
                                    f"{oferta_mais_barata['titulo']} - R${oferta_mais_barata['preco']}\n"
                                    f"Mais detalhes: {oferta_mais_barata['link']}")
                 bot.send_message(chat_id, mensagem_oferta)
 
-            # Enviar as outras ofertas
             bot.send_message(chat_id, "Aqui estão outras opções que encontrei:")
             for oferta in outras_ofertas:
                 mensagem_oferta = (f"{oferta['titulo']} - R${oferta['preco']}\n"
                                    f"Mais detalhes: {oferta['link']}")
                 bot.send_message(chat_id, mensagem_oferta)
 
-            # Perguntar se o usuário deseja buscar outro produto
-            bot.send_message(chat_id,
-                             "Gostaria de buscar outro produto? Digite sim para continuar ou sair para encerrar.")
+            enviar_botoes_sim_nao(chat_id)
             chat_ids[chat_id] = 'esperando_resposta'
         else:
             bot.send_message(chat_id, f"Não encontrei ofertas para o produto '{produto}'. Tente outro produto!")
@@ -110,31 +89,65 @@ def buscar_ofertas(produto, chat_id):
         bot.send_message(chat_id, f"Erro ao buscar ofertas: {e}")
         print(f"Erro ao buscar ofertas: {e}")
 
-# Função para lidar com a resposta do usuário sobre buscar outro produto
-def responder_usuario(chat_id, resposta):
-    if resposta.lower() == "/sim":
-        bot.send_message(chat_id, "Ótimo! Qual produto você deseja buscar?")
-        chat_ids[chat_id] = 'aguardando_produto'
-    elif resposta.lower() == "/sair":
-        bot.send_message(chat_id, "Obrigado por utilizar nosso serviço! Até a próxima.")
-        chat_ids[chat_id] = 'finalizado'  # Marca como finalizado, impedindo respostas posteriores
-    else:
-        bot.send_message(chat_id, "Desculpe, não entendi sua resposta. Digite sim para buscar outro produto ou sair para encerrar.")
 
 @bot.message_handler(func=lambda message: chat_ids.get(message.chat.id) == 'esperando_resposta')
 def responder_busca(message):
     chat_id = message.chat.id
-    if message.text.lower() == "sim":
-        # Volta para a fase de buscar um produto
+    if message.text.lower() == "/sim":
         bot.reply_to(message, "Por favor, informe o produto que você deseja buscar:")
         chat_ids[chat_id] = 'buscando_produto'
-    elif message.text.lower() == "sair":
-        # Encerra a busca
+    elif message.text.lower() == "/nao":
         bot.reply_to(message, "Ok, se precisar de algo mais, estou à disposição! Até logo!")
-        chat_ids[chat_id] = 'finalizado'  # Marca como finalizado, impedindo respostas posteriores
-    # else:
-    #     bot.reply_to(message, "Comando inválido. Digite /sim para buscar outro produto ou /sair para encerrar.")
+        chat_ids[chat_id] = None
+    else:
+        bot.reply_to(message, "Comando inválido. Digite /sim para buscar outro produto ou /não para encerrar.")
+
+
+def enviar_botoes(chat_id):
+    markup = telebot.types.InlineKeyboardMarkup()
+    botao1 = telebot.types.InlineKeyboardButton('Buscar ofertas', callback_data='/opcao1')
+    botao2 = telebot.types.InlineKeyboardButton('Reclamações', callback_data='/opcao2')
+    botao3 = telebot.types.InlineKeyboardButton('Enviar um elogio', callback_data='/opcao3')
+    markup.add(botao1, botao2, botao3)
+    bot.send_message(chat_id, "Escolha uma opção:", reply_markup=markup)
+
+
+def enviar_botoes_sim_nao(chat_id):
+    markup = telebot.types.InlineKeyboardMarkup()
+    botao_sim = telebot.types.InlineKeyboardButton('Sim', callback_data='/sim')
+    botao_nao = telebot.types.InlineKeyboardButton('Não', callback_data='/nao')
+    markup.add(botao_sim, botao_nao)
+    bot.send_message(chat_id, "Gostaria de buscar outro produto?", reply_markup=markup)
+
+
+@bot.message_handler(commands=['start'])
+def start(mensagem):
+    chat_id = mensagem.chat.id
+    texto_inicial = f"""
+    Oi, {mensagem.from_user.first_name}! Como vai? Aqui é o Rab, seu assistente de compras. 
+    Vou te ajudar a encontrar a melhor oferta :)
+    """
+    bot.send_message(chat_id, texto_inicial)
+    enviar_botoes(chat_id)
+
+
+@bot.callback_query_handler(func=lambda call: True)
+def callback_query(call):
+    chat_id = call.message.chat.id
+    if call.data == '/opcao1':
+        bot.send_message(chat_id, "Você escolheu a opção 1: Buscar ofertas. Qual produto você deseja procurar?")
+        chat_ids[chat_id] = 'buscando_produto'
+    elif call.data == '/opcao2':
+        bot.send_message(chat_id, "Você escolheu a opção 2: Reclamações.")
+    elif call.data == '/opcao3':
+        bot.send_message(chat_id, "Você escolheu a opção 3: Enviar um elogio.")
+    elif call.data == '/sim':
+        bot.send_message(chat_id, "Por favor, informe o produto que você deseja buscar:")
+        chat_ids[chat_id] = 'buscando_produto'
+    elif call.data == '/nao':
+        bot.send_message(chat_id, "Ok, se precisar de algo mais, estou à disposição! Até logo!")
+        chat_ids[chat_id] = None
+
 
 # Inicia o bot e começa o polling
-while True:
-    bot.polling()
+bot.polling()

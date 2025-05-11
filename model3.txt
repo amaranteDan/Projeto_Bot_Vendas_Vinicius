@@ -1,0 +1,100 @@
+import telebot
+import time
+import threading
+import requests
+from bs4 import BeautifulSoup
+
+with open("token.txt") as arquivo:
+    token = arquivo.read().strip()
+bot = telebot.TeleBot(token)
+
+chat_ids = []
+
+
+def verificar(mensagem):
+    return True
+
+
+@bot.message_handler(func=verificar)
+def responder(mensagem):
+    chat_id = mensagem.chat.id
+    if chat_id not in chat_ids:
+        chat_ids.append(chat_id)
+    texto = """
+    Oi, como vai? Aqui é o Rab Smile, seu assistente de compras. Terei o maior prazer de te ajudar. (Clique no item)
+    /opcao1 Buscar ofertas
+    /opcao2 Reclamações
+    /opcao3 Enviar um elogio
+    Hummm. Não entendi sua mensagem. Clique em uma das opções.
+    """
+    bot.reply_to(mensagem, texto)
+
+
+def buscar_ofertas_mercadolivre():
+    response = requests.get('https://api.mercadolibre.com/sites/MLB/search?q=ofertas')
+    if response.status_code != 200:
+        print(f"Erro no Mercado Livre: {response.status_code} - {response.text}")
+        return []
+    data = response.json()
+    return data.get('results', [])
+
+
+#def buscar_ofertas_amazon():
+ #   # Substitua por uma API real ou scraping
+  #  response = requests.get('https://www.amazon.com.br/s?k=amazon+ofertas&adgrpid=125584813174&hvadid=595852180939&hvdev=c&hvlocphy=9197118&hvnetw=g&hvqmt=e&hvrand=12151442022547907344&hvtargid=kwd-310082058675&hydadcr=12132_13330071&tag=hydrbrgk-20&ref=pd_sl_mlxsgk5a5_e')
+   # if response.status_code != 200:
+    #    print(f"Erro na Amazon: {response.status_code} - {response.text}")
+     #   return []
+    #data = response.json()
+    #return data.get('results', [])
+
+
+def buscar_ofertas_magalu():
+    url = 'https://www.magazineluiza.com.br/selecao/ofertasdodia/'
+    response = requests.get(url)
+    if response.status_code != 200:
+        print(f"Erro no Magazine Luiza: {response.status_code} - {response.text}")
+        return []
+
+    soup = BeautifulSoup(response.text, 'html.parser')
+    ofertas = []
+
+    # Extrair títulos e preços
+    for item in soup.select('.product-wrapper'):
+        titulo = item.select_one('.product-title').get_text(strip=True)
+        preco = item.select_one('.price').get_text(strip=True)  # Ajuste o seletor conforme a estrutura real
+        link = item.find('a')['href']
+
+        ofertas.append({'title': titulo, 'price': preco, 'link': link})
+
+    return ofertas
+
+
+def buscar_ofertas():
+    while True:
+        try:
+            ofertas_ml = buscar_ofertas_mercadolivre()
+            #ofertas_amazon = buscar_ofertas_amazon()
+            ofertas_magalu = buscar_ofertas_magalu()
+
+            todas_ofertas = ofertas_ml + ofertas_magalu #ofertas_amazon +
+
+            for chat_id in chat_ids:
+                for oferta in todas_ofertas[:5]:  # Limitando a 5 ofertas
+                    titulo = oferta.get('title')
+                    preco = oferta.get('price', 'Preço não disponível')  # Valor padrão caso não tenha
+                    link = oferta.get('link', '')  # Ajuste conforme necessário
+                    mensagem_oferta = f"{titulo} - {preco}\nMais detalhes: {link}"
+                    bot.send_message(chat_id, mensagem_oferta)
+                    time.sleep(20)
+
+        except Exception as e:
+            print(f"Erro ao buscar ofertas: {e}")
+
+        time.sleep(60)  # Aguarda 60 segundos antes de buscar novamente
+
+
+# Inicia a thread para buscar ofertas
+threading.Thread(target=buscar_ofertas, daemon=True).start()
+
+bot.polling()
