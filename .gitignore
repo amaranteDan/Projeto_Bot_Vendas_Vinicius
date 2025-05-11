@@ -2,3 +2,6 @@
 token.txt/
 # Ignore the virtual environment directory
 .venv/
+# Ignore the Python cache files
+.idea/
+
