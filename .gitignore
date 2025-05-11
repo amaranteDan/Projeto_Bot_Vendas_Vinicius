@@ -1,0 +1,4 @@
+# Ignore the token file
+token.txt/
+# Ignore the virtual environment directory
+.venv/
